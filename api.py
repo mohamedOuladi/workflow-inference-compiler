@@ -11,7 +11,8 @@ import graphviz
 import networkx as nx
 import uvicorn
 
-from auth.auth import authenticate
+# from auth.auth import authenticate
+from auth2.auth import authenticate
 from wic import ast, cli, compiler, inference, labshare, utils, plugins, __version__  # , utils_graphs
 from wic.schemas import wic_schema
 from wic.wic_types import GraphData, GraphReps, Json, NodeData, StepId, YamlTree
@@ -43,9 +44,9 @@ def get_args(yaml_path: str = '') -> argparse.Namespace:
     return args
 
 
-@app.get("/", status_code=status.HTTP_200_OK)
+@app.get("/")
 @authenticate
-async def root() -> Dict[str, str]:
+async def root(request: Request) -> Dict[str, str]:
     """The api has 2 routes: compile and inference
 
     Returns:
@@ -126,18 +127,22 @@ async def compile_wf(request: Request) -> Json:
     # Replace 'run' with plugin:id
     cwl_tree_run = copy.deepcopy(cwl_tree_no_dd)
     for i, step_key in enumerate(steps_keys):
-        stem = Path(step_key).stem
-
-        # TODO: get version from ict plugin specs
-        run_val = f'plugin:{stem}:{__version__}'
+        version = '{__version__}'
         step_name_i = step_key
         # step_name_i = utils.step_name_str(yaml_stem, i, step_key)
         step_name_i = step_name_i.replace('.yml', '_yml')  # Due to calling remove_dot_dollar above
+        step_name_stripped = step_name_i.split("__")[-1]
+        version_key = f"({i+1}, {step_name_stripped})"
+        if version_key in wic_obj["wic"]["steps"]:
+            # Override the default version, get the plugin's version defined in wic_obj 
+            version = wic_obj["wic"]["steps"][version_key]["version"]
+        stem = Path(step_name_stripped).stem
+        run_val = f'plugin:{stem}:{version}'
         cwl_tree_run['steps'][step_name_i]['run'] = run_val
 
     compute_workflow = {
         "name": yaml_stem,
-        "driver": "argo",
+        "driver": wic_obj["wic"]["driver"],
         "cwlJobInputs": yaml_inputs_no_dd,
         **cwl_tree_run
     }
